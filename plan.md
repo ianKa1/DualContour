@@ -1,7 +1,7 @@
 # Dual Contouring C++ Demo — Implementation Plan
 
 ## Context
-Bootstrap a complete, working C++ Dual Contouring demo from an empty repo. The algorithm extracts a triangle mesh from an implicit (signed-distance) function by placing one vertex per grid cell via QEF minimization and connecting cells sharing a sign-change edge. The result is rendered interactively with Polyscope. This is a self-contained educational demo with three built-in shapes and a resolution slider.
+Bootstrap a complete, working C++ Dual Contouring demo from an empty repo. The algorithm extracts a triangle mesh from an implicit (signed-distance) function by placing one vertex per grid cell via QEF minimization and connecting cells sharing a sign-change edge. The result is rendered interactively with Polyscope. This is a self-contained educational demo with three analytic shapes plus a Utah teapot loaded from OBJ and converted to a signed distance field via `igl::signed_distance`.
 
 ---
 
@@ -10,10 +10,14 @@ Bootstrap a complete, working C++ Dual Contouring demo from an empty repo. The a
 ```
 DualContour/
 ├── CMakeLists.txt
+├── data/
+│   └── teapot.obj          # Utah teapot mesh (downloaded, committed to repo)
 └── src/
     ├── main.cpp
     ├── implicit.h
     ├── implicit.cpp
+    ├── mesh_sdf.h           # OBJ loader + igl::signed_distance wrapper
+    ├── mesh_sdf.cpp
     ├── qef.h
     ├── qef.cpp
     ├── dual_contour.h
@@ -22,12 +26,25 @@ DualContour/
 
 ---
 
+## Step 0 — Download `data/teapot.obj`
+
+```bash
+mkdir -p data
+curl -L https://raw.githubusercontent.com/jaz303/utah-teapot/master/teapot.obj \
+     -o data/teapot.obj
+```
+
+The raw file has bounding box roughly X∈[-3, 2.6], Y∈[0, 3.15], Z∈[-2, 2]. `mesh_sdf.cpp` normalises it to fit inside `[-0.9, 0.9]^3` at load time.
+
+---
+
 ## Step 1 — CMakeLists.txt
 
 Use CMake FetchContent (no vcpkg, no system installs required):
 
-- **Eigen 3.4.0** from `https://gitlab.com/libeigen/eigen.git` — provides `Eigen3::Eigen` INTERFACE target
-- **Polyscope v2.3.0** from `https://github.com/nmwsharp/polyscope.git` — provides `polyscope` target (bundles glfw, imgui, glm)
+- **Eigen 3.4.0** — header-only linear algebra
+- **libigl v2.5.0** — header-only; provides `igl::signed_distance` and OBJ reader (`igl::readOBJ`)
+- **Polyscope v2.3.0** — viewer (bundles glfw, imgui, glm)
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
@@ -36,21 +53,39 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
+
 # Eigen
 FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git GIT_TAG 3.4.0 GIT_SHALLOW TRUE)
 set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING  OFF CACHE BOOL "" FORCE)
 set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(eigen)
+
+# libigl (header-only core — no extra modules needed)
+FetchContent_Declare(libigl
+  GIT_REPOSITORY https://github.com/libigl/libigl.git
+  GIT_TAG v2.5.0
+  GIT_SHALLOW TRUE)
+set(LIBIGL_USE_STATIC_LIBRARY OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(libigl)
+
 # Polyscope
 FetchContent_Declare(polyscope GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git GIT_TAG v2.3.0 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(polyscope)
 
 add_executable(dual_contour
-  src/main.cpp src/implicit.cpp src/qef.cpp src/dual_contour.cpp)
+  src/main.cpp
+  src/implicit.cpp
+  src/mesh_sdf.cpp
+  src/qef.cpp
+  src/dual_contour.cpp)
 target_include_directories(dual_contour PRIVATE src)
-target_link_libraries(dual_contour PRIVATE polyscope Eigen3::Eigen)
+target_link_libraries(dual_contour PRIVATE polyscope Eigen3::Eigen igl::core)
 target_compile_options(dual_contour PRIVATE -Wall -Wextra -O2)
+
+# Bake the data path so mesh_sdf.cpp can find teapot.obj at runtime
+target_compile_definitions(dual_contour PRIVATE
+  DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 ```
 
 ---
@@ -69,6 +104,88 @@ Eigen::Vector3f gradient(ScalarField f, float x, float y, float z, float eps=1e-
 ```
 
 All three shapes fit in `[-1,1]^3`. Gradient uses central differences.
+
+---
+
+## Step 2b — `mesh_sdf.h` / `mesh_sdf.cpp`
+
+Wraps `igl::readOBJ` + `igl::signed_distance` behind the same `float(float,float,float)` interface used by the analytic shapes. Uses a **module-level global** so a raw function pointer can still be used as `ScalarField`.
+
+### `mesh_sdf.h`
+
+```cpp
+#pragma once
+#include <string>
+
+// Load an OBJ, build an AABB tree, normalise to [-0.9,0.9]^3.
+// Returns false and prints an error if loading fails.
+// Must be called once before implicitMeshSDF is used.
+bool loadMeshSDF(const std::string& obj_path);
+
+// ScalarField-compatible function: queries the pre-loaded mesh SDF.
+// f < 0 = inside, f > 0 = outside (pseudonormal sign).
+float implicitMeshSDF(float x, float y, float z);
+```
+
+### `mesh_sdf.cpp` — key implementation details
+
+```cpp
+#include "mesh_sdf.h"
+#include <igl/readOBJ.h>
+#include <igl/signed_distance.h>
+#include <igl/AABB.h>
+#include <igl/per_face_normals.h>
+#include <igl/per_vertex_normals.h>
+#include <igl/per_edge_normals.h>
+#include <Eigen/Core>
+
+// Module-level state
+static Eigen::MatrixXd g_V;   // Vx3 double
+static Eigen::MatrixXi g_F;   // Fx3 int
+static igl::AABB<Eigen::MatrixXd,3> g_tree;
+static Eigen::MatrixXd g_FN, g_VN, g_EN;
+static Eigen::MatrixXi g_E;
+static Eigen::VectorXi g_EMAP;
+static bool g_loaded = false;
+
+bool loadMeshSDF(const std::string& obj_path) {
+    Eigen::MatrixXd V; Eigen::MatrixXi F;
+    if (!igl::readOBJ(obj_path, V, F)) return false;
+
+    // Normalise: translate centroid to origin, scale to [-0.9,0.9]^3
+    Eigen::RowVector3d lo = V.colwise().minCoeff();
+    Eigen::RowVector3d hi = V.colwise().maxCoeff();
+    Eigen::RowVector3d centre = 0.5*(lo + hi);
+    double scale = 0.9 / (0.5*(hi - lo).maxCoeff());
+    V = (V.rowwise() - centre) * scale;
+
+    g_V = V; g_F = F;
+    g_tree.init(g_V, g_F);
+
+    // Pre-compute normals needed by pseudonormal sign
+    igl::per_face_normals  (g_V, g_F, g_FN);
+    igl::per_vertex_normals(g_V, g_F, igl::PER_VERTEX_NORMALS_WEIGHTING_TYPE_ANGLE, g_VN);
+    igl::per_edge_normals  (g_V, g_F, igl::PER_EDGE_NORMALS_WEIGHTING_TYPE_UNIFORM, g_EN, g_E, g_EMAP);
+
+    g_loaded = true;
+    return true;
+}
+
+float implicitMeshSDF(float x, float y, float z) {
+    // igl::signed_distance_pseudonormal expects double-precision inputs
+    Eigen::RowVector3d p(x, y, z);
+    double s, sqrD; int i; Eigen::RowVector3d c;
+    igl::signed_distance_pseudonormal(
+        g_tree, g_V, g_F, g_FN, g_VN, g_EN, g_EMAP,
+        p, s, sqrD, i, c);
+    // s is the sign (+1 outside, -1 inside); sqrD is squared distance
+    return static_cast<float>(s * std::sqrt(sqrD));
+}
+```
+
+**Why pseudonormal?** The teapot mesh is a closed, watertight (after boolean union) surface. Pseudonormal sign is exact and fast for such meshes; it avoids ray-casting.
+
+**Performance note**: `igl::signed_distance_pseudonormal` with a pre-built AABB tree runs a nearest-face query in O(log F) per point. At 32³ = 32 768 queries, total query time is ~5–20 ms.
 
 ---
 
@@ -160,7 +277,11 @@ Skip quads where any of the 4 cells has `vertexIndex == -1` or is out-of-bounds.
 // Global state
 static int g_resolution = 32;
 static int g_shapeIdx   = 0;
-static ScalarField g_shapes[] = { implicitSphere, implicitBox, implicitTorus };
+// implicitMeshSDF is the teapot; loadMeshSDF() called once in main()
+static ScalarField g_shapes[] = {
+    implicitSphere, implicitBox, implicitTorus, implicitMeshSDF
+};
+static const char* g_shapeNames[] = { "Sphere", "Box", "Torus", "Teapot" };
 
 void rebuildMesh() {
     // buildGrid + dualContour + polyscope::removeSurfaceMesh + registerSurfaceMesh
@@ -170,6 +291,7 @@ void myCallback() {
     // Call rebuildMesh() on any change
 }
 int main() {
+    loadMeshSDF(DATA_DIR "/teapot.obj");  // DATA_DIR injected by CMake
     polyscope::init();
     polyscope::state::userCallback = myCallback;
     rebuildMesh();
@@ -189,12 +311,14 @@ Key Polyscope API:
 
 | Step | File | Notes |
 |------|------|-------|
-| 1 | `CMakeLists.txt` | FetchContent; verify `cmake -B build` succeeds |
-| 2 | `implicit.h/cpp` | Three SDFs + gradient |
-| 3 | `qef.h/cpp` | JacobiSVD solve; test with hand-crafted samples |
+| 0 | `data/teapot.obj` | `curl` download from jaz303/utah-teapot |
+| 1 | `CMakeLists.txt` | FetchContent for Eigen + libigl + Polyscope; `DATA_DIR` define |
+| 2 | `implicit.h/cpp` | Three analytic SDFs + gradient |
+| 2b | `mesh_sdf.h/cpp` | `loadMeshSDF` + `implicitMeshSDF` via `igl::signed_distance_pseudonormal` |
+| 3 | `qef.h/cpp` | JacobiSVD solve |
 | 4 | `dual_contour.h` | Structs only |
 | 5 | `dual_contour.cpp` | buildGrid, Pass 1, Pass 2 |
-| 6 | `main.cpp` | Polyscope init + ImGui callback |
+| 6 | `main.cpp` | `loadMeshSDF` in main; 4-shape Combo in UI |
 
 ---
 
@@ -206,4 +330,4 @@ cmake --build build -j$(nproc)
 ./build/dual_contour
 ```
 
-Expected: Polyscope window opens showing a smooth sphere mesh (default 32³ grid). Changing shape to "Torus" produces a torus with a visible hole. Dragging the resolution slider to 64 increases mesh density visibly. No degenerate / flipped faces on sphere or box.
+Expected: Polyscope window opens showing a smooth sphere mesh (default 32³ grid). Changing shape to "Torus" produces a torus with a visible hole. Selecting "Teapot" shows a recognisable teapot with the characteristic spout and handle. Dragging the resolution slider to 64 increases mesh density visibly. No degenerate / flipped faces on any shape.
