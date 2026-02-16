@@ -247,13 +247,7 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
             continue;
         }
 
-        std::array<int, 3> outTri = tri;
-        const Eigen::Vector3f c = (p0 + p1 + p2) / 3.0f;
-        const Eigen::Vector3f g = gradient(f, c.x(), c.y(), c.z());
-        if (g.squaredNorm() > 1e-12f && n.dot(g) < 0.0f) {
-            std::swap(outTri[1], outTri[2]);
-        }
-        cleanTriangles.push_back(outTri);
+        cleanTriangles.push_back(tri);
     }
     mesh.triangles.swap(cleanTriangles);
     
