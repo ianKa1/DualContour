@@ -38,3 +38,17 @@ target_compile_options(dual_contour PRIVATE -Wall -Wextra -O2)
 target_compile_definitions(dual_contour PRIVATE
   DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
+# Unit tests (no Polyscope dependency)
+foreach(test_name test_qef test_dual_contour test_mesh_sdf)
+  add_executable(${test_name}
+    tests/${test_name}.cpp
+    src/qef.cpp
+    src/implicit.cpp
+    src/dual_contour.cpp
+    src/mesh_sdf.cpp)
+  target_include_directories(${test_name} PRIVATE src)
+  target_link_libraries(${test_name} PRIVATE Eigen3::Eigen igl::core)
+  target_compile_definitions(${test_name} PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+  target_compile_options(${test_name} PRIVATE -Wall -Wextra -O2)
+endforeach()
+

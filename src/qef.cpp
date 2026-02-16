@@ -40,28 +40,35 @@ Eigen::Vector3f solveQEF(const std::vector<HermiteSample>& samples,
 
     // Solve with SVD
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    
-    // Set threshold to zero near-degenerate singular values
-    const auto svals = svd.singularValues();
-    if (svals.size() == 0) {
-        const Eigen::Vector3f m = massPoint.cast<float>();
-        return m.cwiseMax(cellMin).cwiseMin(cellMax);
-    }
-    const double maxSV = svals(0);
+
+    // Set threshold to suppress near-degenerate singular values (rank deficiency)
+    const auto& svals = svd.singularValues();
+    const double maxSV = svals.size() > 0 ? svals(0) : 1.0;
     svd.setThreshold(static_cast<double>(svdThreshold) * std::max(1.0, maxSV));
-    
+
+    // If rank < 3 the system is underdetermined; minimum-norm SVD solve still gives
+    // a reasonable result in constrained directions, with zero displacement in null-space
+    // directions (i.e., biased toward massPoint). This handles edge/corner features.
     Eigen::Vector3d x = svd.solve(b);
-    
-    // Translate result back
+
+    // Translate back to world space
     x += massPoint;
     if (!std::isfinite(x.x()) || !std::isfinite(x.y()) || !std::isfinite(x.z())) {
         x = massPoint;
     }
-    
-    // Clamp to cell bounds
+
+    // If the QEF solution lands outside the cell (rank deficiency or ill-conditioning),
+    // fall back to the mass point rather than clamping to the cell boundary.
+    // The mass point is the average of intersection points and lies on/near the surface,
+    // so it produces far less geometric distortion than a boundary-clamped position.
     Eigen::Vector3f xf = x.cast<float>();
-    xf = xf.cwiseMax(cellMin).cwiseMin(cellMax);
-    
+    const bool inCell = (xf.array() >= cellMin.array()).all() &&
+                        (xf.array() <= cellMax.array()).all();
+    if (!inCell) {
+        xf = massPoint.cast<float>();
+        xf = xf.cwiseMax(cellMin).cwiseMin(cellMax);  // safety clamp for massPoint too
+    }
+
     return xf;
 }
 

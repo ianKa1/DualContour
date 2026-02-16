@@ -139,7 +139,10 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
         return outV >= 0;
     };
 
-    auto emitQuad = [&](const int cells[4][3], const Eigen::Vector3f& edgeMid) {
+    // outward: the direction the surface faces at this edge's sign change.
+    // sign(f1 - f0) * axis gives the reliable outward direction without calling
+    // gradient(), which can be unreliable near thin features of the mesh SDF.
+    auto emitQuad = [&](const int cells[4][3], const Eigen::Vector3f& outward) {
         int v[4];
         for (int t = 0; t < 4; ++t) {
             if (!fetchCellVertex(cells[t][0], cells[t][1], cells[t][2], v[t])) {
@@ -152,13 +155,8 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
         const Eigen::Vector3f p2(mesh.vertices[v[2]][0], mesh.vertices[v[2]][1], mesh.vertices[v[2]][2]);
         Eigen::Vector3f n = (p1 - p0).cross(p2 - p0);
 
-        Eigen::Vector3f g = gradient(f, edgeMid.x(), edgeMid.y(), edgeMid.z());
-        if (g.norm() > 1e-8f && n.norm() > 1e-8f) {
-            g.normalize();
-            // Keep winding so face normal points with the SDF gradient (outward).
-            if (n.dot(g) < 0.0f) {
-                std::swap(v[1], v[3]);
-            }
+        if (n.squaredNorm() > 1e-16f && n.dot(outward) < 0.0f) {
+            std::swap(v[1], v[3]);
         }
 
         mesh.triangles.push_back({v[0], v[1], v[2]});
@@ -180,11 +178,9 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
                     {i, j,     k},
                     {i, j - 1, k}
                 };
-                const Eigen::Vector3f edgeMid(
-                    minBound + (static_cast<float>(i) + 0.5f) * cellSize,
-                    minBound + static_cast<float>(j) * cellSize,
-                    minBound + static_cast<float>(k) * cellSize);
-                emitQuad(cells, edgeMid);
+                // Outward direction: sign(f1-f0) * X
+                const float sx = (f1 > f0) ? 1.0f : -1.0f;
+                emitQuad(cells, Eigen::Vector3f(sx, 0.0f, 0.0f));
             }
         }
     }
@@ -203,11 +199,9 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
                     {i,     j, k},
                     {i - 1, j, k}
                 };
-                const Eigen::Vector3f edgeMid(
-                    minBound + static_cast<float>(i) * cellSize,
-                    minBound + (static_cast<float>(j) + 0.5f) * cellSize,
-                    minBound + static_cast<float>(k) * cellSize);
-                emitQuad(cells, edgeMid);
+                // Outward direction: sign(f1-f0) * Y
+                const float sy = (f1 > f0) ? 1.0f : -1.0f;
+                emitQuad(cells, Eigen::Vector3f(0.0f, sy, 0.0f));
             }
         }
     }
@@ -226,11 +220,9 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
                     {i,     j,     k},
                     {i - 1, j,     k}
                 };
-                const Eigen::Vector3f edgeMid(
-                    minBound + static_cast<float>(i) * cellSize,
-                    minBound + static_cast<float>(j) * cellSize,
-                    minBound + (static_cast<float>(k) + 0.5f) * cellSize);
-                emitQuad(cells, edgeMid);
+                // Outward direction: sign(f1-f0) * Z
+                const float sz = (f1 > f0) ? 1.0f : -1.0f;
+                emitQuad(cells, Eigen::Vector3f(0.0f, 0.0f, sz));
             }
         }
     }

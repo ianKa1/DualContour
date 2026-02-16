@@ -43,7 +43,7 @@ void myCallback() {
     
     // Resolution slider
     int oldRes = g_resolution;
-    ImGui::SliderInt("Resolution", &g_resolution, 8, 64);
+    ImGui::SliderInt("Resolution", &g_resolution, 8, 128);
     if (g_resolution != oldRes) {
         changed = true;
     }
