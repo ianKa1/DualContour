@@ -19,10 +19,36 @@ static Eigen::VectorXi g_EMAP;
 static bool g_loaded = false;
 
 bool loadMeshSDF(const std::string& obj_path) {
-    Eigen::MatrixXd V; Eigen::MatrixXi F;
-    if (!igl::readOBJ(obj_path, V, F)) {
+    // Use the polygon-aware overload so n-gon faces (quads, hexagons, etc.) are read correctly.
+    std::vector<std::vector<double>> Vv, TCv, Nv;
+    std::vector<std::vector<int>>    Fv, FTCv, FNv;
+    if (!igl::readOBJ(obj_path, Vv, TCv, Nv, Fv, FTCv, FNv)) {
         std::cerr << "Failed to load OBJ: " << obj_path << std::endl;
         return false;
+    }
+
+    // Copy vertices into Eigen matrix
+    Eigen::MatrixXd V(static_cast<int>(Vv.size()), 3);
+    for (int i = 0; i < static_cast<int>(Vv.size()); ++i) {
+        V(i,0) = Vv[i][0]; V(i,1) = Vv[i][1]; V(i,2) = Vv[i][2];
+    }
+
+    // Fan-triangulate all polygons (handles triangles, quads, and n-gons)
+    std::vector<Eigen::Vector3i> tris;
+    for (const auto& poly : Fv) {
+        if (poly.size() < 3) continue;
+        int v0 = poly[0];
+        for (int k = 1; k + 1 < static_cast<int>(poly.size()); ++k) {
+            tris.push_back({v0, poly[k], poly[k+1]});
+        }
+    }
+    if (tris.empty()) {
+        std::cerr << "No valid faces in OBJ: " << obj_path << std::endl;
+        return false;
+    }
+    Eigen::MatrixXi F(static_cast<int>(tris.size()), 3);
+    for (int i = 0; i < static_cast<int>(tris.size()); ++i) {
+        F.row(i) = tris[i].transpose();
     }
 
     // Normalise: translate centroid to origin, scale to [-0.9,0.9]^3

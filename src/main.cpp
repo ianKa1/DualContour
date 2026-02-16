@@ -10,16 +10,28 @@
 static int g_resolution = 32;
 static int g_shapeIdx = 0;
 static ScalarField g_shapes[] = {
-    implicitSphere, implicitBox, implicitTorus, implicitMeshSDF
+    implicitSphere, implicitBox, implicitTorus, implicitMeshSDF, implicitMeshSDF
 };
-static const char* g_shapeNames[] = { "Sphere", "Box", "Torus", "Teapot" };
+static const char* g_shapeNames[] = { "Sphere", "Box", "Torus", "Teapot", "Gear" };
+static const char* g_meshPaths[]  = { nullptr, nullptr, nullptr,
+                                      DATA_DIR "/teapot.obj",
+                                      DATA_DIR "/GEAR.obj" };
+static int g_loadedMeshIdx = -1;  // which mesh-based shape is currently loaded
 
 static DCGrid g_grid;
 static DCMesh g_mesh;
 
 void rebuildMesh() {
+    // If this shape needs a mesh SDF, reload the OBJ only when the selection changed.
+    if (g_meshPaths[g_shapeIdx] != nullptr && g_loadedMeshIdx != g_shapeIdx) {
+        if (!loadMeshSDF(g_meshPaths[g_shapeIdx])) {
+            std::cerr << "Warning: Failed to load " << g_meshPaths[g_shapeIdx] << std::endl;
+        }
+        g_loadedMeshIdx = g_shapeIdx;
+    }
+
     ScalarField f = g_shapes[g_shapeIdx];
-    
+
     // Build grid
     g_grid = buildGrid(f, g_resolution);
     
@@ -49,8 +61,7 @@ void myCallback() {
     }
     
     // Shape combo
-    int oldShape = g_shapeIdx;
-    if (ImGui::Combo("Shape", &g_shapeIdx, g_shapeNames, 4)) {
+    if (ImGui::Combo("Shape", &g_shapeIdx, g_shapeNames, 5)) {
         changed = true;
     }
     
@@ -65,12 +76,6 @@ void myCallback() {
 }
 
 int main() {
-    // Load teapot mesh
-    std::string teapotPath = DATA_DIR "/teapot.obj";
-    if (!loadMeshSDF(teapotPath)) {
-        std::cerr << "Warning: Failed to load teapot.obj. Teapot shape will not work." << std::endl;
-    }
-    
     // Initialize Polyscope
     polyscope::init();
     
