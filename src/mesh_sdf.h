@@ -10,3 +10,4 @@ bool loadMeshSDF(const std::string& obj_path);
 // f < 0 = inside, f > 0 = outside (pseudonormal sign).
 float implicitMeshSDF(float x, float y, float z);
 
+

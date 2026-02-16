@@ -1,201 +1,192 @@
-1️⃣ 最常见原因：QEF 解跑出 cell（90%概率）
+# Dual Contouring Artifact Diagnosis
 
-如果你没有做 clamp：
+---
 
+## 🔥 1️⃣ Most Common Cause: QEF Solution Escapes the Cell (≈90% Probability)
+
+If you did not clamp the QEF solution,
+
+```
 vertex ∉ cell bounds
+```
 
+the QEF may produce a solution that lies far away from the actual intersection points.
 
-QEF 可能会解出：
+This typically happens when:
 
-远离交点的极端位置
+- The planes are nearly parallel  
+- The normals are nearly collinear  
+- The system has rank deficiency  
 
+In these cases, the least-squares solution becomes unstable and can “explode.”
 
-尤其当：
+### ✅ Correct Fix
 
-平面接近平行
-
-法向接近共线
-
-rank deficiency
-
-就会爆炸。
-
-✅ 正确做法
+```cpp
 if (!point_inside_cell(v))
     v = clamp_to_cell(v);
+```
 
+or:
 
-或者：
-
+```cpp
 v = v.cwiseMax(cell_min).cwiseMin(cell_max);
+```
 
-🔥 2️⃣ QEF 退化（rank deficiency）
+This ensures the vertex remains inside the voxel cell.
 
-如果一个 cell 里：
+---
 
-所有法向几乎共线
+## 🔥 2️⃣ QEF Degeneracy (Rank Deficiency)
 
-或只有 1~2 个交点
+If inside a cell:
 
-矩阵 A 的 rank < 3
+- All normals are nearly collinear  
+- Or there are only 1–2 Hermite samples  
 
-这时最小二乘问题没有唯一解。
+Then matrix **A** has rank < 3.
 
-结果会：
+In this case, the least-squares problem does not have a unique solution.
 
-SVD 给出极端解
+What happens:
 
-顶点飞出 cell
+- SVD may produce an extreme solution  
+- The vertex may fly outside the cell  
 
-✅ 解决方法
+### ✅ Fix
 
-判断奇异值：
+Check the smallest singular value:
 
+```cpp
 if (smallest_singular_value < epsilon)
     fallback_to_cell_center();
+```
 
-🔥 3️⃣ 法向方向不一致
+---
 
-如果 Hermite normal：
+## 🔥 3️⃣ Inconsistent Normal Directions
 
-有的指 inside
+If Hermite normals:
 
-有的指 outside
+- Some point inward  
+- Some point outward  
 
-那 QEF 平面约束会互相冲突。
+Then the plane constraints conflict.
 
-效果就是：
+The result:
 
-顶点位置剧烈震荡
+- The vertex position oscillates wildly  
+- The QEF becomes unstable  
 
-✅ 检查
+### ✅ Check
 
-确认：
+Make sure:
 
+```cpp
 normal = normalize(gradient);
+```
 
+And ensure consistent orientation.
 
-而且方向统一：
+For example:
 
-比如 SDF > 0 是 outside。
+```
+SDF > 0 → outside
+```
 
-🔥 4️⃣ 法向未归一化
+All normals must follow the same convention.
 
-QEF 构造的是：
+---
 
-𝑛
-𝑖
-⋅
-𝑥
-=
-𝑛
-𝑖
-⋅
-𝑝
-𝑖
-n
-i
-	​
+## 🔥 4️⃣ Normals Not Normalized
 
-⋅x=n
-i
-	​
+QEF constructs equations of the form:
 
-⋅p
-i
-	​
+nᵢ · x = nᵢ · pᵢ
 
+If nᵢ is not normalized:
 
-如果 n_i 不归一化：
+- Some planes get excessive weight  
+- The solution becomes biased  
 
-某些平面权重异常大
+Always normalize normals.
 
-解被拉偏
+---
 
-🔥 5️⃣ 面连接顺序错误（较低概率）
+## 🔥 5️⃣ Incorrect Face Winding (Lower Probability)
 
-如果 face indices 顺序错：
+If face indices are constructed incorrectly:
 
-winding 错
+- Winding order may be wrong  
+- Faces may flip  
 
-出现翻折
+However, this usually looks like topology errors rather than vertex explosions.
 
-但你这个更像 vertex 错。
+---
 
-🔥 6️⃣ Grid resolution 太低
+## 🔥 6️⃣ Grid Resolution Too Low
 
-壶嘴和壶柄是高曲率区域。
+High-curvature regions (e.g., spout, handle) are sensitive.
 
-如果 grid 太粗：
+If the grid is too coarse:
 
-Hermite sample 少
+- Few Hermite samples per cell  
+- QEF becomes unstable  
 
-QEF 不稳定
+However, low resolution alone rarely causes extreme spikes.
 
-但这通常不会产生尖刺这么严重。
+---
 
-🔬 你这个图的直觉判断
+## 🔬 Debug Test
 
-从“刺状拉伸”来看：
+After solving QEF, add:
 
-99% 是 QEF 解没有被限制在 cell 内
-
-这是 DC 初学者最常见 bug。
-
-🎯 你可以立刻做的测试
-在 solve 后打印：
+```cpp
 if (!point_inside_cell(v)) {
     std::cout << "QEF outside cell!" << std::endl;
 }
+```
 
+You will likely see many warnings if this is the issue.
 
-我敢说你会看到一堆输出。
+---
 
-🧠 为什么 DC 容易这样？
+## 🧠 Why Dual Contouring Is Prone to This
 
-因为 QEF 本质是：
+QEF solves:
 
-min
-⁡
-∣
-∣
-𝐴
-𝑥
-−
-𝑏
-∣
-∣
-2
-min∣∣Ax−b∣∣
-2
+min ||Ax - b||²
 
-这是无约束最小二乘。
+This is an **unconstrained least squares problem**.
 
-但 DC 需要的是：
+But Dual Contouring actually needs:
 
-约束最小二乘（解必须在 cell 内）
+> A constrained least squares problem  
+> (The solution must stay inside the cell.)
 
-而原论文默认没有强约束。
+The original paper does not enforce this constraint explicitly.
 
-所以工程实现必须补 clamp。
+So practical implementations must add clamping.
 
-🚀 推荐一个稳健实现策略
+---
 
-1️⃣ 计算 QEF 解
-2️⃣ 如果 rank < 3 → fallback cell center
-3️⃣ 如果 解不在 cell → clamp
-4️⃣ 如果 clamp 后误差过大 → fallback
+## 🚀 Recommended Robust Strategy
 
-🎯 终极总结
+1. Solve the QEF  
+2. If rank < 3 → fallback to cell center  
+3. If solution is outside the cell → clamp  
+4. If clamped solution still produces large error → fallback  
 
-你这个 artifact 典型原因是：
+---
 
-QEF 数值不稳定 + 没做 cell 约束
+## 🎯 Final Summary
 
-修好这一点：
+Artifacts are most likely caused by:
 
-壶身会立刻平滑
+> QEF numerical instability + missing cell constraint
 
-壶柄会正常
+Fixing this should:
 
-盖子不会爆裂
+- Smooth the body  
+- Stabilize the handle  
+- Prevent exploding geometry  

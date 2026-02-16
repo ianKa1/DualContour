@@ -12,3 +12,4 @@ Eigen::Vector3f solveQEF(const std::vector<HermiteSample>& samples,
                          const Eigen::Vector3f& cellMax,
                          float svdThreshold = 1e-3f);
 
+
