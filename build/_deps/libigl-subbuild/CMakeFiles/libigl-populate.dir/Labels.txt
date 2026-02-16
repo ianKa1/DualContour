@@ -1,0 +1,14 @@
+# Target labels
+ libigl-populate
+# Source files and their labels
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/CMakeFiles/libigl-populate
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/CMakeFiles/libigl-populate.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/CMakeFiles/libigl-populate-complete.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-build.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-configure.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-download.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-install.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-mkdir.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-patch.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-test.rule
+/Users/kaimao/Desktop/COMS6998_Geometry_processing/DualContour/build/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-update.rule

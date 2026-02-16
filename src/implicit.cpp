@@ -9,11 +9,13 @@ float implicitSphere(float x, float y, float z) {
 }
 
 float implicitBox(float x, float y, float z) {
-    float hx = 0.6f, hy = 0.45f, hz = 0.5f;
-    float dx = std::max(std::abs(x) - hx, 0.0f);
-    float dy = std::max(std::abs(y) - hy, 0.0f);
-    float dz = std::max(std::abs(z) - hz, 0.0f);
-    return std::sqrt(dx*dx + dy*dy + dz*dz);
+    const Eigen::Vector3f b(0.6f, 0.45f, 0.5f);
+    const Eigen::Vector3f p(std::abs(x), std::abs(y), std::abs(z));
+    const Eigen::Vector3f q = p - b;
+    const Eigen::Vector3f qMax = q.cwiseMax(Eigen::Vector3f::Zero());
+    const float outside = qMax.norm();
+    const float inside = std::min(std::max(q.x(), std::max(q.y(), q.z())), 0.0f);
+    return outside + inside;
 }
 
 float implicitTorus(float x, float y, float z) {

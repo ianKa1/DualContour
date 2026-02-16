@@ -26,18 +26,6 @@ DualContour/
 
 ---
 
-## Step 0 — Download `data/teapot.obj`
-
-```bash
-mkdir -p data
-curl -L https://raw.githubusercontent.com/jaz303/utah-teapot/master/teapot.obj \
-     -o data/teapot.obj
-```
-
-The raw file has bounding box roughly X∈[-3, 2.6], Y∈[0, 3.15], Z∈[-2, 2]. `mesh_sdf.cpp` normalises it to fit inside `[-0.9, 0.9]^3` at load time.
-
----
-
 ## Step 1 — CMakeLists.txt
 
 Use CMake FetchContent (no vcpkg, no system installs required):
@@ -311,7 +299,6 @@ Key Polyscope API:
 
 | Step | File | Notes |
 |------|------|-------|
-| 0 | `data/teapot.obj` | `curl` download from jaz303/utah-teapot |
 | 1 | `CMakeLists.txt` | FetchContent for Eigen + libigl + Polyscope; `DATA_DIR` define |
 | 2 | `implicit.h/cpp` | Three analytic SDFs + gradient |
 | 2b | `mesh_sdf.h/cpp` | `loadMeshSDF` + `implicitMeshSDF` via `igl::signed_distance_pseudonormal` |

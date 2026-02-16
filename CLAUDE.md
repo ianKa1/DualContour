@@ -1,63 +1,49 @@
-# DualContour
+# CLAUDE.md
 
-A C++ implementation of the Dual Contouring algorithm with interactive 3D visualization.
-
-## Project Overview
-
-Dual Contouring is a mesh extraction method that, unlike Marching Cubes, preserves sharp features by using Hermite data (intersection points + normals) at grid edges. This demo extracts a mesh from an implicit function over a uniform grid and visualizes the result.
-
-## Tech Stack
-
-- **Language**: C++17
-- **Build system**: CMake (≥ 3.20)
-- **Visualization**: [Polyscope](https://polyscope.run/) — lightweight, header-friendly viewer for geometry processing research
-- **Linear algebra**: [Eigen3](https://eigen.tuxfamily.org/) — used for QEF (Quadric Error Function) solving and vector math
-- **Package management**: vcpkg or system package manager
-
-## Repository Structure
-
-```
-DualContour/
-├── CLAUDE.md
-├── README.md
-├── CMakeLists.txt
-├── src/
-│   ├── main.cpp          # Entry point: build scene, run Polyscope loop
-│   ├── implicit.h/cpp    # Implicit function definitions (sphere, torus, CSG, etc.)
-│   ├── dual_contour.h/cpp# Core DC algorithm (grid, QEF solve, mesh extraction)
-│   └── qef.h/cpp         # Quadric Error Function solver (SVD-based)
-└── third_party/          # Vendored or CMake FetchContent dependencies
-```
-
-## Algorithm Overview
-
-1. **Grid setup** — define a uniform 3D grid over a bounding box
-2. **Sign detection** — evaluate the implicit function at each grid corner
-3. **Edge intersection** — for each edge where sign changes, compute intersection point and surface normal
-4. **QEF solve** — per cube: collect Hermite data and minimize `sum ||n_i · (x - p_i)||^2` via SVD to find the optimal vertex position inside the cell
-5. **Mesh connectivity** — for each edge with a sign change, emit a quad connecting the 4 cells sharing that edge; split quads into tris for rendering
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Build
 
-```bash
-# Install dependencies (macOS example)
-brew install cmake eigen polyscope   # or use vcpkg
+Dependencies are fetched automatically via CMake FetchContent (Eigen 3.4.0, libigl v2.5.0, Polyscope v2.3.0) — no manual install needed.
 
+```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ./build/dual_contour
 ```
 
-## Key Implementation Notes
+Incremental rebuild: `cmake --build build && ./build/dual_contour`
 
-- QEF solving: use `Eigen::JacobiSVD` with a tolerance threshold to avoid degenerate cells placing vertices far outside the cell — clamp to cell bounds
-- Normal estimation: use the gradient of the implicit function (analytic or central-differences)
-- Grid resolution: default 32³; controllable via CLI arg or Polyscope UI slider
-- Polyscope registration: register the extracted mesh with `polyscope::registerSurfaceMesh` and call `polyscope::show()`
+## Architecture
 
-## Development Guidelines
+### Data flow
 
-- Keep implicit functions as simple lambdas/functors in `implicit.h` so new shapes are easy to add
-- Prefer `Eigen::Vector3d` for geometry math; avoid raw arrays
-- No dynamic memory in the hot loop — pre-allocate grid arrays
-- Run `cmake --build build && ./build/dual_contour` to iterate quickly
+1. `main.cpp` — registers shapes and wires up the Polyscope ImGui callback (`myCallback`). The callback drives `rebuildMesh()` on resolution/shape change.
+2. `buildGrid()` in `dual_contour.cpp` — samples the scalar field at `(N+1)³` grid corners, stores results in `DCGrid::values`.
+3. `dualContour()` in `dual_contour.cpp` — iterates edges for sign changes, calls `gradient()` to get normals, accumulates `HermiteSample`s per cell, calls `solveQEF()`, then emits quads (split into triangles) for sign-changing edges.
+4. `solveQEF()` in `qef.cpp` — builds the least-squares system from Hermite samples and solves via `Eigen::JacobiSVD`; clamps the result to `[cellMin, cellMax]`.
+
+### Key types
+
+- `ScalarField = float(*)(float x, float y, float z)` — function pointer type; all implicit shapes must match this signature.
+- `DCGrid` — flat `(N+1)³` array of scalar values + `N³` array mapping cell index to output vertex index (-1 if empty).
+- `DCMesh` — output vertex and triangle lists using `std::array<float,3>` / `std::array<int,3>`.
+- `HermiteSample` — `{point, normal}` as `Eigen::Vector3f` pairs, collected per cell before QEF solve.
+
+### Implicit functions
+
+`implicit.h/cpp` defines `ScalarField`-compatible free functions: `implicitSphere`, `implicitBox`, `implicitTorus`, and the central-differences `gradient()` helper.
+
+`mesh_sdf.h/cpp` adds `implicitMeshSDF` backed by libigl's AABB + pseudonormal signed distance. Call `loadMeshSDF(path)` once before use. Mesh data (e.g. `teapot.obj`) lives in `data/` and the path is baked in at compile time via the `DATA_DIR` preprocessor define.
+
+## Adding a new shape
+
+1. Add a `float myShape(float x, float y, float z)` declaration to `implicit.h` and implement it in `implicit.cpp`. Convention: `f < 0` = inside, `f > 0` = outside.
+2. Add it to the `g_shapes[]` and `g_shapeNames[]` arrays in `main.cpp`.
+
+## Key implementation details
+
+- `ScalarField` is a raw function pointer — lambdas with captures cannot be used without a wrapper.
+- QEF SVD tolerance is `1e-3f` (passed as default arg to `solveQEF`); result is clamped to the cell bounding box to prevent outlier vertices.
+- Normal estimation uses central differences with `eps=1e-4f` by default.
+- Grid bounds default to `[-1, 1]³`; resolution defaults to 32 (slider range 8–64 in UI).

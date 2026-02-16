@@ -129,204 +129,133 @@ DCMesh dualContour(ScalarField f, DCGrid& grid) {
         }
     }
     
-    // Pass 2: Quad emission
-    for (int ck = 0; ck < N; ++ck) {
-        for (int cj = 0; cj < N; ++cj) {
-            for (int ci = 0; ci < N; ++ci) {
-                int cellIdx_val = cellIdx(ci, cj, ck, N);
-                if (grid.vertexIndex[cellIdx_val] == -1) continue;
-                
-                // Check +X edge (requires cj>=1, ck>=1)
-                if (cj >= 1 && ck >= 1) {
-                    int i = ci;
-                    int j = cj;
-                    int k = ck;
-                    int idx0 = cornerIdx(i, j, k, N);
-                    int idx1 = cornerIdx(i+1, j, k, N);
-                    float f0 = grid.values[idx0];
-                    float f1 = grid.values[idx1];
-                    
-                    if ((f0 < 0) != (f1 < 0)) {
-                        // Get the 4 sharing cells
-                        int cells[4][3] = {
-                            {ci, cj, ck},
-                            {ci, cj-1, ck},
-                            {ci, cj, ck-1},
-                            {ci, cj-1, ck-1}
-                        };
-                        int vIndices[4];
-                        bool valid = true;
-                        for (int c = 0; c < 4; ++c) {
-                            int cci = cells[c][0], ccj = cells[c][1], cck = cells[c][2];
-                            if (cci < 0 || ccj < 0 || cck < 0 || cci >= N || ccj >= N || cck >= N) {
-                                valid = false;
-                                break;
-                            }
-                            int cidx = cellIdx(cci, ccj, cck, N);
-                            vIndices[c] = grid.vertexIndex[cidx];
-                            if (vIndices[c] == -1) {
-                                valid = false;
-                                break;
-                            }
-                        }
-                        
-                        if (valid) {
-                            // Create quad as two triangles: (0,1,2) and (1,3,2)
-                            int va = vIndices[0], vb = vIndices[1], vc = vIndices[2], vd = vIndices[3];
-                            
-                            // Compute face normal for winding check
-                            Eigen::Vector3f a(mesh.vertices[va][0], mesh.vertices[va][1], mesh.vertices[va][2]);
-                            Eigen::Vector3f b(mesh.vertices[vb][0], mesh.vertices[vb][1], mesh.vertices[vb][2]);
-                            Eigen::Vector3f d(mesh.vertices[vd][0], mesh.vertices[vd][1], mesh.vertices[vd][2]);
-                            Eigen::Vector3f faceNormal = (b - a).cross(d - a);
-                            
-                            // Edge midpoint for gradient check
-                            float midX = minBound + (i + 0.5f) * cellSize;
-                            float midY = minBound + j * cellSize;
-                            float midZ = minBound + k * cellSize;
-                            Eigen::Vector3f grad = gradient(f, midX, midY, midZ);
-                            float gradLen = grad.norm();
-                            if (gradLen > 1e-6f) grad /= gradLen;
-                            
-                            // Check if we need to flip (f_low < 0 means inside, outward opposes gradient)
-                            float f_low = std::min(f0, f1);
-                            bool flip = (f_low < 0) ? (faceNormal.dot(grad) > 0) : (faceNormal.dot(grad) < 0);
-                            
-                            if (flip) {
-                                mesh.triangles.push_back({va, vc, vb});
-                                mesh.triangles.push_back({vb, vc, vd});
-                            } else {
-                                mesh.triangles.push_back({va, vb, vc});
-                                mesh.triangles.push_back({vb, vd, vc});
-                            }
-                        }
-                    }
-                }
-                
-                // Check +Y edge (requires ci>=1, ck>=1)
-                if (ci >= 1 && ck >= 1) {
-                    int i = ci;
-                    int j = cj;
-                    int k = ck;
-                    int idx0 = cornerIdx(i, j, k, N);
-                    int idx1 = cornerIdx(i, j+1, k, N);
-                    float f0 = grid.values[idx0];
-                    float f1 = grid.values[idx1];
-                    
-                    if ((f0 < 0) != (f1 < 0)) {
-                        int cells[4][3] = {
-                            {ci, cj, ck},
-                            {ci-1, cj, ck},
-                            {ci, cj, ck-1},
-                            {ci-1, cj, ck-1}
-                        };
-                        int vIndices[4];
-                        bool valid = true;
-                        for (int c = 0; c < 4; ++c) {
-                            int cci = cells[c][0], ccj = cells[c][1], cck = cells[c][2];
-                            if (cci < 0 || ccj < 0 || cck < 0 || cci >= N || ccj >= N || cck >= N) {
-                                valid = false;
-                                break;
-                            }
-                            int cidx = cellIdx(cci, ccj, cck, N);
-                            vIndices[c] = grid.vertexIndex[cidx];
-                            if (vIndices[c] == -1) {
-                                valid = false;
-                                break;
-                            }
-                        }
-                        
-                        if (valid) {
-                            int va = vIndices[0], vb = vIndices[1], vc = vIndices[2], vd = vIndices[3];
-                            Eigen::Vector3f a(mesh.vertices[va][0], mesh.vertices[va][1], mesh.vertices[va][2]);
-                            Eigen::Vector3f b(mesh.vertices[vb][0], mesh.vertices[vb][1], mesh.vertices[vb][2]);
-                            Eigen::Vector3f d(mesh.vertices[vd][0], mesh.vertices[vd][1], mesh.vertices[vd][2]);
-                            Eigen::Vector3f faceNormal = (b - a).cross(d - a);
-                            
-                            float midX = minBound + i * cellSize;
-                            float midY = minBound + (j + 0.5f) * cellSize;
-                            float midZ = minBound + k * cellSize;
-                            Eigen::Vector3f grad = gradient(f, midX, midY, midZ);
-                            float gradLen = grad.norm();
-                            if (gradLen > 1e-6f) grad /= gradLen;
-                            
-                            float f_low = std::min(f0, f1);
-                            bool flip = (f_low < 0) ? (faceNormal.dot(grad) > 0) : (faceNormal.dot(grad) < 0);
-                            
-                            if (flip) {
-                                mesh.triangles.push_back({va, vc, vb});
-                                mesh.triangles.push_back({vb, vc, vd});
-                            } else {
-                                mesh.triangles.push_back({va, vb, vc});
-                                mesh.triangles.push_back({vb, vd, vc});
-                            }
-                        }
-                    }
-                }
-                
-                // Check +Z edge (requires ci>=1, cj>=1)
-                if (ci >= 1 && cj >= 1) {
-                    int i = ci;
-                    int j = cj;
-                    int k = ck;
-                    int idx0 = cornerIdx(i, j, k, N);
-                    int idx1 = cornerIdx(i, j, k+1, N);
-                    float f0 = grid.values[idx0];
-                    float f1 = grid.values[idx1];
-                    
-                    if ((f0 < 0) != (f1 < 0)) {
-                        int cells[4][3] = {
-                            {ci, cj, ck},
-                            {ci-1, cj, ck},
-                            {ci, cj-1, ck},
-                            {ci-1, cj-1, ck}
-                        };
-                        int vIndices[4];
-                        bool valid = true;
-                        for (int c = 0; c < 4; ++c) {
-                            int cci = cells[c][0], ccj = cells[c][1], cck = cells[c][2];
-                            if (cci < 0 || ccj < 0 || cck < 0 || cci >= N || ccj >= N || cck >= N) {
-                                valid = false;
-                                break;
-                            }
-                            int cidx = cellIdx(cci, ccj, cck, N);
-                            vIndices[c] = grid.vertexIndex[cidx];
-                            if (vIndices[c] == -1) {
-                                valid = false;
-                                break;
-                            }
-                        }
-                        
-                        if (valid) {
-                            int va = vIndices[0], vb = vIndices[1], vc = vIndices[2], vd = vIndices[3];
-                            Eigen::Vector3f a(mesh.vertices[va][0], mesh.vertices[va][1], mesh.vertices[va][2]);
-                            Eigen::Vector3f b(mesh.vertices[vb][0], mesh.vertices[vb][1], mesh.vertices[vb][2]);
-                            Eigen::Vector3f d(mesh.vertices[vd][0], mesh.vertices[vd][1], mesh.vertices[vd][2]);
-                            Eigen::Vector3f faceNormal = (b - a).cross(d - a);
-                            
-                            float midX = minBound + i * cellSize;
-                            float midY = minBound + j * cellSize;
-                            float midZ = minBound + (k + 0.5f) * cellSize;
-                            Eigen::Vector3f grad = gradient(f, midX, midY, midZ);
-                            float gradLen = grad.norm();
-                            if (gradLen > 1e-6f) grad /= gradLen;
-                            
-                            float f_low = std::min(f0, f1);
-                            bool flip = (f_low < 0) ? (faceNormal.dot(grad) > 0) : (faceNormal.dot(grad) < 0);
-                            
-                            if (flip) {
-                                mesh.triangles.push_back({va, vc, vb});
-                                mesh.triangles.push_back({vb, vc, vd});
-                            } else {
-                                mesh.triangles.push_back({va, vb, vc});
-                                mesh.triangles.push_back({vb, vd, vc});
-                            }
-                        }
-                    }
-                }
+    auto signChange = [](float a, float b) {
+        return (a < 0.0f) != (b < 0.0f);
+    };
+
+    auto fetchCellVertex = [&](int ci, int cj, int ck, int& outV) -> bool {
+        if (ci < 0 || cj < 0 || ck < 0 || ci >= N || cj >= N || ck >= N) return false;
+        outV = grid.vertexIndex[cellIdx(ci, cj, ck, N)];
+        return outV >= 0;
+    };
+
+    auto emitQuad = [&](const int cells[4][3], const Eigen::Vector3f& edgeMid) {
+        int v[4];
+        for (int t = 0; t < 4; ++t) {
+            if (!fetchCellVertex(cells[t][0], cells[t][1], cells[t][2], v[t])) {
+                return;
+            }
+        }
+
+        const Eigen::Vector3f p0(mesh.vertices[v[0]][0], mesh.vertices[v[0]][1], mesh.vertices[v[0]][2]);
+        const Eigen::Vector3f p1(mesh.vertices[v[1]][0], mesh.vertices[v[1]][1], mesh.vertices[v[1]][2]);
+        const Eigen::Vector3f p2(mesh.vertices[v[2]][0], mesh.vertices[v[2]][1], mesh.vertices[v[2]][2]);
+        Eigen::Vector3f n = (p1 - p0).cross(p2 - p0);
+
+        Eigen::Vector3f g = gradient(f, edgeMid.x(), edgeMid.y(), edgeMid.z());
+        if (g.norm() > 1e-8f && n.norm() > 1e-8f) {
+            g.normalize();
+            // Keep winding so face normal points with the SDF gradient (outward).
+            if (n.dot(g) < 0.0f) {
+                std::swap(v[1], v[3]);
+            }
+        }
+
+        mesh.triangles.push_back({v[0], v[1], v[2]});
+        mesh.triangles.push_back({v[0], v[2], v[3]});
+    };
+
+    // Pass 2: emit one quad for each sign-changing grid edge.
+    // X-edges (i->i+1), shared by 4 cells around Y/Z.
+    for (int k = 0; k <= N; ++k) {
+        for (int j = 0; j <= N; ++j) {
+            for (int i = 0; i < N; ++i) {
+                float f0 = grid.values[cornerIdx(i, j, k, N)];
+                float f1 = grid.values[cornerIdx(i + 1, j, k, N)];
+                if (!signChange(f0, f1) || j == 0 || k == 0) continue;
+
+                const int cells[4][3] = {
+                    {i, j - 1, k - 1},
+                    {i, j,     k - 1},
+                    {i, j,     k},
+                    {i, j - 1, k}
+                };
+                const Eigen::Vector3f edgeMid(
+                    minBound + (static_cast<float>(i) + 0.5f) * cellSize,
+                    minBound + static_cast<float>(j) * cellSize,
+                    minBound + static_cast<float>(k) * cellSize);
+                emitQuad(cells, edgeMid);
             }
         }
     }
+
+    // Y-edges (j->j+1), shared by 4 cells around X/Z.
+    for (int k = 0; k <= N; ++k) {
+        for (int j = 0; j < N; ++j) {
+            for (int i = 0; i <= N; ++i) {
+                float f0 = grid.values[cornerIdx(i, j, k, N)];
+                float f1 = grid.values[cornerIdx(i, j + 1, k, N)];
+                if (!signChange(f0, f1) || i == 0 || k == 0) continue;
+
+                const int cells[4][3] = {
+                    {i - 1, j, k - 1},
+                    {i,     j, k - 1},
+                    {i,     j, k},
+                    {i - 1, j, k}
+                };
+                const Eigen::Vector3f edgeMid(
+                    minBound + static_cast<float>(i) * cellSize,
+                    minBound + (static_cast<float>(j) + 0.5f) * cellSize,
+                    minBound + static_cast<float>(k) * cellSize);
+                emitQuad(cells, edgeMid);
+            }
+        }
+    }
+
+    // Z-edges (k->k+1), shared by 4 cells around X/Y.
+    for (int k = 0; k < N; ++k) {
+        for (int j = 0; j <= N; ++j) {
+            for (int i = 0; i <= N; ++i) {
+                float f0 = grid.values[cornerIdx(i, j, k, N)];
+                float f1 = grid.values[cornerIdx(i, j, k + 1, N)];
+                if (!signChange(f0, f1) || i == 0 || j == 0) continue;
+
+                const int cells[4][3] = {
+                    {i - 1, j - 1, k},
+                    {i,     j - 1, k},
+                    {i,     j,     k},
+                    {i - 1, j,     k}
+                };
+                const Eigen::Vector3f edgeMid(
+                    minBound + static_cast<float>(i) * cellSize,
+                    minBound + static_cast<float>(j) * cellSize,
+                    minBound + (static_cast<float>(k) + 0.5f) * cellSize);
+                emitQuad(cells, edgeMid);
+            }
+        }
+    }
+
+    // Final pass: remove degenerate triangles and enforce consistent outward winding.
+    std::vector<std::array<int, 3>> cleanTriangles;
+    cleanTriangles.reserve(mesh.triangles.size());
+    for (const auto& tri : mesh.triangles) {
+        const Eigen::Vector3f p0(mesh.vertices[tri[0]][0], mesh.vertices[tri[0]][1], mesh.vertices[tri[0]][2]);
+        const Eigen::Vector3f p1(mesh.vertices[tri[1]][0], mesh.vertices[tri[1]][1], mesh.vertices[tri[1]][2]);
+        const Eigen::Vector3f p2(mesh.vertices[tri[2]][0], mesh.vertices[tri[2]][1], mesh.vertices[tri[2]][2]);
+        Eigen::Vector3f n = (p1 - p0).cross(p2 - p0);
+        if (n.squaredNorm() < 1e-12f) {
+            continue;
+        }
+
+        std::array<int, 3> outTri = tri;
+        const Eigen::Vector3f c = (p0 + p1 + p2) / 3.0f;
+        const Eigen::Vector3f g = gradient(f, c.x(), c.y(), c.z());
+        if (g.squaredNorm() > 1e-12f && n.dot(g) < 0.0f) {
+            std::swap(outTri[1], outTri[2]);
+        }
+        cleanTriangles.push_back(outTri);
+    }
+    mesh.triangles.swap(cleanTriangles);
     
     return mesh;
 }

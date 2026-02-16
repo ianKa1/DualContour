@@ -1,6 +1,7 @@
 #include "qef.h"
 #include <Eigen/SVD>
 #include <algorithm>
+#include <cmath>
 
 Eigen::Vector3f solveQEF(const std::vector<HermiteSample>& samples,
                          const Eigen::Vector3f& cellMin,
@@ -13,39 +14,54 @@ Eigen::Vector3f solveQEF(const std::vector<HermiteSample>& samples,
     }
 
     // Compute mass-point (average of intersection points)
-    Eigen::Vector3f massPoint = Eigen::Vector3f::Zero();
+    Eigen::Vector3d massPoint = Eigen::Vector3d::Zero();
     for (const auto& sample : samples) {
-        massPoint += sample.point;
+        massPoint += sample.point.cast<double>();
     }
-    massPoint /= static_cast<float>(samples.size());
+    massPoint /= static_cast<double>(samples.size());
 
     // Translate system to mass-point for better conditioning
-    int n = static_cast<int>(samples.size());
-    Eigen::MatrixXf A(n, 3);
-    Eigen::VectorXf b(n);
+    const int sampleCount = static_cast<int>(samples.size());
+    Eigen::MatrixXd A(sampleCount, 3);
+    Eigen::VectorXd b(sampleCount);
 
-    for (int i = 0; i < n; ++i) {
-        Eigen::Vector3f p = samples[i].point - massPoint;
-        Eigen::Vector3f n = samples[i].normal;
-        A.row(i) = n.transpose();
-        b(i) = n.dot(p);
+    for (int i = 0; i < sampleCount; ++i) {
+        const Eigen::Vector3d p = samples[i].point.cast<double>() - massPoint;
+        Eigen::Vector3d normal = samples[i].normal.cast<double>();
+        const double nNorm = normal.norm();
+        if (nNorm > 1e-12) {
+            normal /= nNorm;
+        } else {
+            normal = Eigen::Vector3d::UnitX();
+        }
+        A.row(i) = normal.transpose();
+        b(i) = normal.dot(p);
     }
 
     // Solve with SVD
-    Eigen::JacobiSVD<Eigen::MatrixXf> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
     
     // Set threshold to zero near-degenerate singular values
-    float maxSV = svd.singularValues()(0);
-    svd.setThreshold(svdThreshold * maxSV);
+    const auto svals = svd.singularValues();
+    if (svals.size() == 0) {
+        const Eigen::Vector3f m = massPoint.cast<float>();
+        return m.cwiseMax(cellMin).cwiseMin(cellMax);
+    }
+    const double maxSV = svals(0);
+    svd.setThreshold(static_cast<double>(svdThreshold) * std::max(1.0, maxSV));
     
-    Eigen::Vector3f x = svd.solve(b);
+    Eigen::Vector3d x = svd.solve(b);
     
     // Translate result back
     x += massPoint;
+    if (!std::isfinite(x.x()) || !std::isfinite(x.y()) || !std::isfinite(x.z())) {
+        x = massPoint;
+    }
     
     // Clamp to cell bounds
-    x = x.cwiseMax(cellMin).cwiseMin(cellMax);
+    Eigen::Vector3f xf = x.cast<float>();
+    xf = xf.cwiseMax(cellMin).cwiseMin(cellMax);
     
-    return x;
+    return xf;
 }
 
